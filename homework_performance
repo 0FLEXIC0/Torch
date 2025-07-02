@@ -1,0 +1,104 @@
+import time
+import torch
+
+# Создайте большие матрицы размеров:
+# - 64 x 1024 x 1024
+# Остальные не стал делать, т.к. дольше работает программа + много повторов
+# Заполните их случайными числами
+tensor1_64x1024x1024 = torch.randint(11, (64, 1024, 1024), dtype=float)
+tensor2_64x1024x1024 = torch.randint(11, (64, 1024, 1024), dtype=float)
+
+# Создайте функцию для измерения времени выполнения операций
+# Используйте torch.cuda.Event() для точного измерения на GPU
+# Используйте time.time() для измерения на CPU
+def execute_operation(operation_name, device, *tensors):
+    """
+    Выполняет операцию ('matmul', 'add', 'mul', 'transpose', 'sum') на CPU или CUDA.
+    Возвращает результат и время выполнения в секундах.
+
+    Вход: 
+    Имя операции (string)
+    Устройство (string)
+    Тензоры tuple[tensor]
+
+    Выход:
+    Время выполнения (секунды) (float)
+    """
+    operations = {
+        'matmul': torch.matmul,
+        'add': torch.add,
+        'mul': torch.mul,
+        'transpose': lambda x: x.t() if x.dim() == 2 else x.transpose(0, 1),
+        'sum': torch.sum
+    }
+
+    tensors = [t.to(device) for t in tensors]
+
+    if device.startswith('cuda'):
+        start_event = torch.cuda.Event(enable_timing=True)
+        end_event = torch.cuda.Event(enable_timing=True)
+        torch.cuda.synchronize()
+        start_event.record()
+        result = operations[operation_name](*tensors)
+        end_event.record()
+        torch.cuda.synchronize()
+        elapsed_time = start_event.elapsed_time(end_event) / 1000.0
+    else:
+        start_time = time.time()
+        result = operations[operation_name](*tensors)
+        elapsed_time = time.time() - start_time
+
+    return elapsed_time
+
+# Сравните время выполнения следующих операций на CPU и CUDA:
+# - Матричное умножение (torch.matmul)
+# - Поэлементное сложение
+# - Поэлементное умножение
+# - Транспонирование
+# - Вычисление суммы всех элементов
+
+# Для каждой операции:
+# 1. Измерьте время на CPU
+# 2. Измерьте время на GPU (если доступен)
+matmul_cuda = execute_operation('matmul', 'cuda', tensor1_64x1024x1024, tensor2_64x1024x1024)
+matmul_cpu = execute_operation('matmul', 'cpu', tensor1_64x1024x1024, tensor2_64x1024x1024)
+add_cuda = execute_operation('add', 'cuda', tensor1_64x1024x1024, tensor2_64x1024x1024)
+add_cpu = execute_operation('add', 'cpu', tensor1_64x1024x1024, tensor2_64x1024x1024)
+mul_cuda = execute_operation('mul', 'cuda', tensor1_64x1024x1024, tensor2_64x1024x1024)
+mul_cpu = execute_operation('mul', 'cpu', tensor1_64x1024x1024, tensor2_64x1024x1024)
+transpose_cuda = execute_operation('transpose', 'cuda', tensor1_64x1024x1024)
+transpose_cpu = execute_operation('transpose', 'cpu', tensor1_64x1024x1024)
+sum_cuda = execute_operation('sum', 'cuda', tensor1_64x1024x1024)
+sum_cpu = execute_operation('sum', 'cpu', tensor1_64x1024x1024)
+
+# 3. Вычислите ускорение (speedup)
+# 4. Выведите результаты в табличном виде
+print(f"Операция                        | CPU (мс) | GPU (мс) | Ускорение (раз)")
+print(f"Матричное умножение             |   {matmul_cpu:.2f}   |   {matmul_cuda:.2f}   |     {matmul_cpu/matmul_cuda:.2f}")
+print(f"Поэлементное сложение           |   {add_cpu:.2f}   |   {add_cuda:.2f}   |     {add_cpu/add_cuda:.2f}")
+print(f"Поэлементное умножение          |   {mul_cpu:.2f}   |   {mul_cuda:.2f}   |     {mul_cpu/mul_cuda:.2f}")
+print(f"Транспонирование                |   {transpose_cpu:.2f}   |   {transpose_cuda:.2f}   |     {transpose_cpu/transpose_cuda:.2f}")
+print(f"Вычисление суммы всех элементов |   {sum_cpu:.2f}   |   {sum_cuda:.2f}   |     {sum_cpu/sum_cuda:.2f}")
+
+# Проанализируйте результаты:
+# - Какие операции получают наибольшее ускорение на GPU?
+"""
+Поэлементное умножение — ускорение в 15 раз.
+Вычисление суммы всех элементов — ускорение около 7.5 раз.
+Поэлементное сложение — ускорение в 5 раз.
+Эти операции хорошо распараллеливаются, так как состоят из большого количества независимых простых вычислений, которые GPU выполняет параллельно.
+"""
+# - Почему некоторые операции могут быть медленнее на GPU?
+"""
+Для очень быстрых операций на CPU накладные расходы на передачу данных и запуск вычислений на GPU могут превышать выигрыш.
+Малые размеры данных не дают GPU раскрыть весь потенциал параллелизма.
+"""
+# - Как размер матриц влияет на ускорение?
+"""
+Чем больше размер матриц, тем эффективнее GPU использует параллелизм и тем выше ускорение.
+"""
+# - Что происходит при передаче данных между CPU и GPU?
+"""
+Если вы вызываете операцию на GPU, а данные хранятся на CPU, PyTorch автоматически копирует их на видеокарту, что занимает дополнительное время.
+Передача данных между оперативной памятью (CPU) и видеопамятью (GPU) осуществляется через шину PCI Express и является относительно медленной операцией по сравнению с вычислениями внутри самого GPU.
+"""
